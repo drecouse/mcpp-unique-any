@@ -2,6 +2,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 
+#define MCPP_UNIQUE_ANY_SMALL_BUFFER_SIZE 3 * sizeof(void*)
 #include "mcpp/unique_any.hpp"
 #include "alloc.hpp"
 #include "doctest/doctest.h"
@@ -21,9 +22,9 @@ struct large {
     void *a[4];
 };
 
-static_assert(sizeof(unique_any) == 4 * sizeof(void *));
-static_assert(sizeof(small) + sizeof(void *) <= sizeof(unique_any));
-static_assert(sizeof(large) + sizeof(void *) > sizeof(unique_any));
+static_assert(sizeof(unique_any<mcpp::detail::default_small_buffer_size, mcpp::detail::default_small_buffer_alignment>) == 4 * sizeof(void *));
+static_assert(sizeof(small) + sizeof(void *) <= sizeof(unique_any<mcpp::detail::default_small_buffer_size, mcpp::detail::default_small_buffer_alignment>));
+static_assert(sizeof(large) + sizeof(void *) > sizeof(unique_any<mcpp::detail::default_small_buffer_size, mcpp::detail::default_small_buffer_alignment>));
 
 } // namespace
 

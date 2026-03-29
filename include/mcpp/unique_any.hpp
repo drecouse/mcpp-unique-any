@@ -14,35 +14,36 @@
 namespace mcpp {
 
 namespace detail {
-constexpr inline std::size_t small_buffer_size = 3 * sizeof(void *);
-constexpr inline std::size_t small_buffer_alignment = std::alignment_of_v<void *>;
-using small_buffer = std::aligned_storage_t<small_buffer_size, small_buffer_alignment>;
+constexpr inline std::size_t default_small_buffer_size = 3 * sizeof(void *);
+constexpr inline std::size_t default_small_buffer_alignment = std::alignment_of_v<void *>;
 
-template <typename T>
-constexpr inline bool is_small_object_v = sizeof(T) <= sizeof(small_buffer) &&                               //
-                                          std::alignment_of_v<small_buffer> % std::alignment_of_v<T> == 0 && //
+template <typename T, std::size_t SBOsize, std::size_t SBOalignment>
+constexpr inline bool is_small_object_v = sizeof(T) <= SBOsize &&                               //
+                                          SBOalignment % std::alignment_of_v<T> == 0 && //
                                           std::is_nothrow_move_constructible_v<T>;
 
+template <std::size_t SBOsize, std::size_t SBOalignment>
 union storage {
     constexpr storage() : ptr(nullptr) {}
     void *ptr;
-    small_buffer buf;
+    alignas(SBOalignment) std::byte buf[SBOsize];
 };
 
+template <std::size_t SBOsize, std::size_t SBOalignment>
 struct vtable_type {
-    void (&destroy)(storage &);
-    void (&move)(storage &, storage &);
-    void *(&get)(storage &);
+    void (&destroy)(storage<SBOsize, SBOalignment> &);
+    void (&move)(storage<SBOsize, SBOalignment> &, storage<SBOsize, SBOalignment> &);
+    void *(&get)(storage<SBOsize, SBOalignment> &);
     const std::type_info &typeinfo;
 };
 
-template <class T>
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 struct small_buffer_handler;
-template <class T>
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 struct default_handler;
 
-template <class T>
-using handler = std::conditional_t<is_small_object_v<T>, small_buffer_handler<T>, default_handler<T>>;
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+using handler = std::conditional_t<is_small_object_v<T, SBOsize, SBOalignment>, small_buffer_handler<T, SBOsize, SBOalignment>, default_handler<T,SBOsize, SBOalignment>>;
 
 template <typename T>
 struct is_in_place_type : std::false_type {};
@@ -52,6 +53,7 @@ template <typename T>
 inline constexpr bool is_in_place_type_v = is_in_place_type<T>::value;
 } // namespace detail
 
+template <std::size_t SBOsize = detail::default_small_buffer_size, std::size_t SBOalignment = detail::default_small_buffer_alignment>
 class unique_any {
   public:
     ///////////////////////////////////////////////////////////////////////////
@@ -72,22 +74,22 @@ class unique_any {
     // https://en.cppreference.com/w/cpp/utility/any/any (4)
     template <class ValueType, class T = std::decay_t<ValueType>,
               class = std::enable_if_t<!std::is_same_v<T, unique_any> && !detail::is_in_place_type_v<T>>>
-    unique_any(ValueType &&value) : vtable_(&detail::handler<T>::vtable) {
-        detail::handler<T>::create(storage_, std::forward<ValueType>(value));
+    unique_any(ValueType &&value) : vtable_(&detail::handler<T,SBOsize,SBOalignment>::vtable) {
+        detail::handler<T,SBOsize,SBOalignment>::create(storage_, std::forward<ValueType>(value));
     }
     // https://en.cppreference.com/w/cpp/utility/any/any (5)
     template <class ValueType, class... Args, class T = std::decay_t<ValueType>,
               class = std::enable_if_t<std::is_constructible_v<T, Args...>>>
     explicit unique_any(std::in_place_type_t<ValueType> /*unused*/, Args &&...args)
-        : vtable_(&detail::handler<T>::vtable) {
-        detail::handler<T>::create(storage_, std::forward<Args>(args)...);
+        : vtable_(&detail::handler<T,SBOsize,SBOalignment>::vtable) {
+        detail::handler<T,SBOsize,SBOalignment>::create(storage_, std::forward<Args>(args)...);
     }
     // https://en.cppreference.com/w/cpp/utility/any/any (6)
     template <class ValueType, class U, class... Args, class T = std::decay_t<ValueType>,
               class = std::enable_if_t<std::is_constructible_v<T, std::initializer_list<U> &, Args...>>>
     explicit unique_any(std::in_place_type_t<ValueType> /*unused*/, std::initializer_list<U> il, Args &&...args)
-        : vtable_(&detail::handler<T>::vtable) {
-        detail::handler<T>::create(storage_, il, std::forward<Args>(args)...);
+        : vtable_(&detail::handler<T,SBOsize,SBOalignment>::vtable) {
+        detail::handler<T,SBOsize,SBOalignment>::create(storage_, il, std::forward<Args>(args)...);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -123,8 +125,8 @@ class unique_any {
               class = std::enable_if_t<std::is_constructible_v<T, Args...>>>
     auto emplace(Args &&...args) -> T & {
         reset();
-        auto &result = detail::handler<T>::create(storage_, std::forward<Args>(args)...);
-        vtable_ = &detail::handler<T>::vtable;
+        auto &result = detail::handler<T,SBOsize,SBOalignment>::create(storage_, std::forward<Args>(args)...);
+        vtable_ = &detail::handler<T,SBOsize,SBOalignment>::vtable;
         return result;
     }
     // https://en.cppreference.com/w/cpp/utility/any/emplace (2)
@@ -132,8 +134,8 @@ class unique_any {
               class = std::enable_if_t<std::is_constructible_v<T, std::initializer_list<U> &, Args...>>>
     auto emplace(std::initializer_list<U> il, Args &&...args) -> T & {
         reset();
-        auto &result = detail::handler<T>::create(storage_, il, std::forward<Args>(args)...);
-        vtable_ = &detail::handler<T>::vtable;
+        auto &result = detail::handler<T,SBOsize,SBOalignment>::create(storage_, il, std::forward<Args>(args)...);
+        vtable_ = &detail::handler<T,SBOsize,SBOalignment>::vtable;
         return result;
     }
     // https://en.cppreference.com/w/cpp/utility/any/reset
@@ -152,7 +154,7 @@ class unique_any {
             return;
         }
         if (vtable_ != nullptr && other.vtable_ != nullptr) {
-            auto tmp = detail::storage();
+            auto tmp = detail::storage<SBOsize, SBOalignment>();
             other.vtable_->move(other.storage_, tmp);
             vtable_->move(storage_, other.storage_);
             other.vtable_->move(tmp, storage_);
@@ -184,39 +186,39 @@ class unique_any {
         return const_cast<unique_any *>(this)->unsafe_cast<T>();
     }
 
-    template <typename T>
-    friend auto any_cast(const unique_any *operand) noexcept -> const T *;
+    template <class T, std::size_t SBOsize2, std::size_t SBOalignment2>
+    friend auto any_cast(const unique_any<SBOsize2,SBOalignment2> *operand) noexcept -> const T *;
 
-    template <typename T>
-    friend auto any_cast(unique_any *operand) noexcept -> T *;
+    template <class T, std::size_t SBOsize2, std::size_t SBOalignment2>
+    friend auto any_cast(unique_any<SBOsize2,SBOalignment2> *operand) noexcept -> T *;
 
-    const detail::vtable_type *vtable_;
-    detail::storage storage_;
+    const detail::vtable_type<SBOsize, SBOalignment> *vtable_;
+    detail::storage<SBOsize, SBOalignment> storage_;
 };
 
 namespace detail {
-template <class T>
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 struct small_buffer_handler {
   private:
     using allocator = std::allocator<T>;
     using allocator_traits = std::allocator_traits<allocator>;
-    static auto cast(storage &s) -> T * { return std::launder(static_cast<T *>(static_cast<void *>(&s.buf))); }
-    static void destroy(storage &s) {
+    static auto cast(storage<SBOsize,SBOalignment> &s) -> T * { return std::launder(static_cast<T *>(static_cast<void *>(&s.buf))); }
+    static void destroy(storage<SBOsize,SBOalignment> &s) {
         auto alloc = allocator{};
         allocator_traits::destroy(alloc, cast(s));
     }
-    static void move(storage &src, storage &dst) {
+    static void move(storage<SBOsize,SBOalignment> &src, storage<SBOsize,SBOalignment> &dst) {
         auto alloc = allocator{};
         allocator_traits::construct(alloc, cast(dst), std::move(*cast(src)));
         allocator_traits::destroy(alloc, cast(src));
     }
-    static auto get(storage &s) -> void * { return cast(s); }
+    static auto get(storage<SBOsize,SBOalignment> &s) -> void * { return cast(s); }
 
   public:
     static constexpr inline vtable_type vtable = {destroy, move, get, typeid(T)};
 
     template <class... Args>
-    static auto create(storage &s, Args &&...args) -> T & {
+    static auto create(storage<SBOsize,SBOalignment> &s, Args &&...args) -> T & {
         auto alloc = allocator{};
         auto *ret = cast(s);
         allocator_traits::construct(alloc, ret, std::forward<Args>(args)...);
@@ -232,25 +234,25 @@ struct allocator_deleter {
     }
 };
 
-template <class T>
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 struct default_handler {
   private:
     using allocator = std::allocator<T>;
     using allocator_traits = std::allocator_traits<allocator>;
-    static void destroy(storage &s) {
+    static void destroy(storage<SBOsize,SBOalignment> &s) {
         auto alloc = allocator{};
         auto *ptr = std::launder(static_cast<T *>(s.ptr));
         allocator_traits::destroy(alloc, ptr);
         allocator_traits::deallocate(alloc, ptr, 1);
     }
-    static void move(storage &src, storage &dst) { dst.ptr = src.ptr; }
-    static auto get(storage &s) -> void * { return s.ptr; }
+    static void move(storage<SBOsize,SBOalignment> &src, storage<SBOsize,SBOalignment> &dst) { dst.ptr = src.ptr; }
+    static auto get(storage<SBOsize,SBOalignment> &s) -> void * { return s.ptr; }
 
   public:
     static constexpr inline vtable_type vtable = {destroy, move, get, typeid(T)};
 
     template <class... Args>
-    static auto create(storage &s, Args &&...args) -> T & {
+    static auto create(storage<SBOsize,SBOalignment> &s, Args &&...args) -> T & {
         auto alloc = allocator{};
         auto holder = std::unique_ptr<T, allocator_deleter<allocator, 1>>(allocator_traits::allocate(alloc, 1));
         auto *ptr = holder.get();
@@ -263,13 +265,14 @@ struct default_handler {
 } // namespace detail
 
 // https://en.cppreference.com/w/cpp/utility/any/swap2
-inline void swap(unique_any &lhs, unique_any &rhs) noexcept {
+template <std::size_t SBOsize, std::size_t SBOalignment>
+inline void swap(unique_any<SBOsize,SBOalignment> &lhs, unique_any<SBOsize,SBOalignment> &rhs) noexcept {
     lhs.swap(rhs);
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (1)
-template <class T>
-auto any_cast(const unique_any &operand) -> T {
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+auto any_cast(const unique_any<SBOsize,SBOalignment> &operand) -> T {
     using U = std::remove_cv_t<std::remove_reference_t<T>>;
     static_assert(std::is_constructible_v<T, const U &>);
     if (auto ptr = any_cast<std::add_const_t<U>>(&operand)) {
@@ -279,19 +282,19 @@ auto any_cast(const unique_any &operand) -> T {
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (2)
-template <class T>
-auto any_cast(unique_any &operand) -> T {
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+auto any_cast(unique_any<SBOsize,SBOalignment> &operand) -> T {
     using U = std::remove_cv_t<std::remove_reference_t<T>>;
     static_assert(std::is_constructible_v<T, U &>);
-    if (auto ptr = any_cast<U>(&operand)) {
+    if (auto ptr = any_cast<U,SBOsize,SBOalignment>(&operand)) {
         return static_cast<T>(*ptr);
     }
     throw std::bad_any_cast();
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (3)
-template <class T>
-auto any_cast(unique_any &&operand) -> T {
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+auto any_cast(unique_any<SBOsize,SBOalignment> &&operand) -> T {
     using U = std::remove_cv_t<std::remove_reference_t<T>>;
     static_assert(std::is_constructible_v<T, U>);
     if (auto ptr = any_cast<U>(&operand)) {
@@ -301,35 +304,35 @@ auto any_cast(unique_any &&operand) -> T {
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (4)
-template <class T>
-auto any_cast(const unique_any *operand) noexcept -> const T * {
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+auto any_cast(const unique_any<SBOsize,SBOalignment> *operand) noexcept -> const T * {
     static_assert(!std::is_reference_v<T>);
     if (operand && operand->type() == typeid(T)) {
-        return operand->unsafe_cast<T>();
+        return operand->template unsafe_cast<T>();
     }
     return nullptr;
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (5)
-template <class T>
-auto any_cast(unique_any *operand) noexcept -> T * {
+template <class T, std::size_t SBOsize, std::size_t SBOalignment>
+auto any_cast(unique_any<SBOsize,SBOalignment> *operand) noexcept -> T * {
     static_assert(!std::is_reference_v<T>);
     if (operand && operand->type() == typeid(T)) {
-        return operand->unsafe_cast<T>();
+        return operand->template unsafe_cast<T>();
     }
     return nullptr;
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/make_any (1)
-template <class T, class... Args>
-auto make_unique_any(Args &&...args) -> unique_any {
-    return unique_any(std::in_place_type<T>, std::forward<Args>(args)...);
+template <class T, std::size_t SBOsize, std::size_t SBOalignment, class... Args>
+auto make_unique_any(Args &&...args) -> unique_any<SBOsize,SBOalignment> {
+    return unique_any<SBOsize,SBOalignment>(std::in_place_type<T>, std::forward<Args>(args)...);
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/make_any (2)
-template <class T, class U, class... Args>
-auto make_unique_any(std::initializer_list<U> il, Args &&...args) -> unique_any {
-    return unique_any(std::in_place_type<T>, il, std::forward<Args>(args)...);
+template <class T, std::size_t SBOsize, std::size_t SBOalignment, class U, class... Args>
+auto make_unique_any(std::initializer_list<U> il, Args &&...args) -> unique_any<SBOsize,SBOalignment> {
+    return unique_any<SBOsize,SBOalignment>(std::in_place_type<T>, il, std::forward<Args>(args)...);
 }
 
 } // namespace mcpp
