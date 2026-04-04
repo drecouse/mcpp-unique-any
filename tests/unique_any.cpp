@@ -31,13 +31,13 @@ static_assert(sizeof(large) + sizeof(void *) > sizeof(unique_any<mcpp::detail::d
 TEST_CASE("basic") {
     auto any = unique_any();
     CHECK(!any.has_value());
-    CHECK(any.type() == typeid(void));
+    //CHECK(any.type() == typeid(void));
 
     auto ptr = std::make_unique<std::string>("Foo");
     CHECK(ptr != nullptr);
     any = std::move(ptr);
     CHECK(any.has_value());
-    CHECK(any.type() == typeid(decltype(ptr)));
+    //CHECK(any.type() == typeid(decltype(ptr)));
     CHECK(ptr == nullptr);
 
     auto any2 = std::move(any);

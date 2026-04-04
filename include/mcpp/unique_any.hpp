@@ -8,7 +8,7 @@
 #include <memory>
 #include <new>
 #include <type_traits>
-#include <typeinfo>
+//#include <typeinfo>
 #include <utility>
 
 namespace mcpp {
@@ -34,7 +34,7 @@ struct vtable_type {
     void (&destroy)(storage<SBOsize, SBOalignment> &);
     void (&move)(storage<SBOsize, SBOalignment> &, storage<SBOsize, SBOalignment> &);
     void *(&get)(storage<SBOsize, SBOalignment> &);
-    const std::type_info &typeinfo;
+    //const std::type_info &typeinfo;
 };
 
 template <class T, std::size_t SBOsize, std::size_t SBOalignment>
@@ -171,9 +171,9 @@ class unique_any {
     // https://en.cppreference.com/w/cpp/utility/any/has_value
     [[nodiscard]] auto has_value() const noexcept -> bool { return vtable_ != nullptr; }
     // https://en.cppreference.com/w/cpp/utility/any/type
-    [[nodiscard]] auto type() const noexcept -> const std::type_info & {
-        return vtable_ != nullptr ? vtable_->typeinfo : typeid(void);
-    }
+    //[[nodiscard]] auto type() const noexcept -> const std::type_info & {
+    //    return vtable_ != nullptr ? vtable_->typeinfo : typeid(void);
+    //}
 
   private:
     template <typename T>
@@ -215,7 +215,7 @@ struct small_buffer_handler {
     static auto get(storage<SBOsize,SBOalignment> &s) -> void * { return cast(s); }
 
   public:
-    static constexpr inline vtable_type vtable = {destroy, move, get, typeid(T)};
+    static constexpr inline vtable_type vtable = {destroy, move, get/*, typeid(T)*/};
 
     template <class... Args>
     static auto create(storage<SBOsize,SBOalignment> &s, Args &&...args) -> T & {
@@ -249,7 +249,7 @@ struct default_handler {
     static auto get(storage<SBOsize,SBOalignment> &s) -> void * { return s.ptr; }
 
   public:
-    static constexpr inline vtable_type vtable = {destroy, move, get, typeid(T)};
+    static constexpr inline vtable_type vtable = {destroy, move, get/*, typeid(T)*/};
 
     template <class... Args>
     static auto create(storage<SBOsize,SBOalignment> &s, Args &&...args) -> T & {
@@ -307,20 +307,20 @@ auto any_cast(unique_any<SBOsize,SBOalignment> &&operand) -> T {
 template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 auto any_cast(const unique_any<SBOsize,SBOalignment> *operand) noexcept -> const T * {
     static_assert(!std::is_reference_v<T>);
-    if (operand && operand->type() == typeid(T)) {
+    //if (operand && operand->type() == typeid(T)) {
         return operand->template unsafe_cast<T>();
-    }
-    return nullptr;
+    //}
+    //return nullptr;
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (5)
 template <class T, std::size_t SBOsize, std::size_t SBOalignment>
 auto any_cast(unique_any<SBOsize,SBOalignment> *operand) noexcept -> T * {
     static_assert(!std::is_reference_v<T>);
-    if (operand && operand->type() == typeid(T)) {
+    //if (operand && operand->type() == typeid(T)) {
         return operand->template unsafe_cast<T>();
-    }
-    return nullptr;
+    //}
+    //return nullptr;
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/make_any (1)
