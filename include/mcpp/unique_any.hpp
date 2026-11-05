@@ -4,7 +4,11 @@
 
 #pragma once
 
+#if defined(__cpp_exceptions) && defined(__cpp_rtti)
 #include <any>
+#else
+#include <cstdlib>
+#endif
 #include <memory>
 #include <new>
 #include <type_traits>
@@ -16,6 +20,15 @@ namespace mcpp {
 namespace detail {
 constexpr inline std::size_t default_small_buffer_size = 3 * sizeof(void *);
 constexpr inline std::size_t default_small_buffer_alignment = std::alignment_of_v<void *>;
+
+// a failed any_cast: std::bad_any_cast, or abort without exceptions or RTTI (the MSVC STL then hides <any>)
+[[noreturn]] inline void throw_bad_any_cast() {
+#if defined(__cpp_exceptions) && defined(__cpp_rtti)
+    throw std::bad_any_cast();
+#else
+    std::abort();
+#endif
+}
 
 template <typename T, std::size_t SBOsize, std::size_t SBOalignment>
 constexpr inline bool is_small_object_v = sizeof(T) <= SBOsize &&                               //
@@ -278,7 +291,7 @@ auto any_cast(const unique_any<SBOsize,SBOalignment> &operand) -> T {
     if (auto ptr = any_cast<std::add_const_t<U>>(&operand)) {
         return static_cast<T>(*ptr);
     }
-    throw std::bad_any_cast();
+    detail::throw_bad_any_cast();
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (2)
@@ -289,7 +302,7 @@ auto any_cast(unique_any<SBOsize,SBOalignment> &operand) -> T {
     if (auto ptr = any_cast<U,SBOsize,SBOalignment>(&operand)) {
         return static_cast<T>(*ptr);
     }
-    throw std::bad_any_cast();
+    detail::throw_bad_any_cast();
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (3)
@@ -300,7 +313,7 @@ auto any_cast(unique_any<SBOsize,SBOalignment> &&operand) -> T {
     if (auto ptr = any_cast<U>(&operand)) {
         return static_cast<T>(std::move(*ptr));
     }
-    throw std::bad_any_cast();
+    detail::throw_bad_any_cast();
 }
 
 // https://en.cppreference.com/w/cpp/utility/any/any_cast (4)
